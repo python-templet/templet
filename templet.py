@@ -1,17 +1,17 @@
-"""A lightweight python templating engine.  Templet version 2 beta.
+"""A lightweight python templating engine.  Templet version 3.1
 
-Supports two templating idioms:
-    1. template functions using @stringfunction and @unicodefunction
-    2. template classes inheriting from StringTemplate and UnicodeTemplate
+Lightweight templating idiom using @stringfunction and @unicodefunction.
 
 Each template function is marked with the attribute @stringfunction
 or @unicodefunction.  Template functions will be rewritten to expand
 their document string as a template and return the string result.
 For example:
 
-    @stringtemplate
-    def myTemplate(animal, thing):
-      "the $animal jumped over the $thing."
+    from templet import stringfunction
+
+    @stringfunction
+    def myTemplate(animal, body):
+      "the $animal jumped over the $body."
 
     print myTemplate('cow', 'moon')
 
@@ -20,76 +20,36 @@ The template language understands the following forms:
     $myvar - inserts the value of the variable 'myvar'
     ${...} - evaluates the expression and inserts the result
     ${{...}} - executes enclosed code; use 'out.append(text)' to insert text
+
+In addition the following special codes are recognized:
     $$ - an escape for a single $
     $ (at the end of the line) - a line continuation
+    $( $. - translates directly to $( and $. so jquery does not need escaping
+    $/ $' $" - also passed through so the end of a regex does not need escaping
 
 Template functions are compiled into code that accumulates a list of
 strings in a local variable 'out', and then returns the concatenation
 of them.  If you want do do complicated computation, you can append
-to 'out' directly inside a ${{...}} block.
+to the 'out' variable directly inside a ${{...}} block, for example:
 
-Another alternative is to use template classes.
-
-Each template class is a subclass of StringTemplate or UnicodeTemplate.
-Template classes should define a class attribute 'template' that
-contains the template code.  Also, any class attribute ending with
-'_template' will be compiled into a template method.
-
-Use a template class by instantiating it with a dictionary or
-keyword arguments.  Get the expansion by converting the instance
-to a string.  For example:
-
-    class MyTemplate(templet.Template):
-      template = "the $animal jumped over the $thing."
-
-    print MyTemplate(animal='cow', thing='moon')
-
-Within a template class, the template language is similar to a template
-function, but 'self.write' should be used to build the string inside
-${{..}} blocks.  Also, there is a shorthand for calling template methods:
-
-    $<sub_template> - shorthand for '${{self.sub_template(vars())}}'
-
-This idiom is helpful for decomposing a template and when subclassing.
-
-A longer example:
-
-    import cgi
-    class RecipeTemplate(templet.Template):
-      template = r'''
-        <html><head><title>$dish</title></head>
-        <body>
-        $<header_template>
-        $<body_template>
-        </body></html>
+    @stringfunction
+    def myrow(name, values):
       '''
-      header_template = r'''
-        <h1>${cgi.escape(dish)}</h1>
-      '''
-      body_template = r'''
-        <ol>
-        ${{
-          for item in ingredients:
-            self.write('<li>', item, '\n')
-        }}
-        </ol>
+      <tr><td>$name</td><td>${{
+         for val in values:
+           out.append(string(val))
+      }}</td></tr>
       '''
 
-This template can be expanded as follows:
-
-    print RecipeTemplate(dish='burger', ingredients=['bun', 'beef', 'lettuce'])
-
-And it can be subclassed like this:
-
-    class RecipeWithPriceTemplate(RecipeTemplate):
-      header_template = "<h1>${cgi.escape(dish)} - $$$price</h1>\n"
+Generated code is arranged so that error line numbers are reported as
+accurately as possible.
 
 Templet is by David Bau and was inspired by Tomer Filiba's Templite class.
 For details, see http://davidbau.com/templet
 
 Templet is posted by David Bau under BSD-license terms.
 
-Copyright (c) 2007, David Bau
+Copyright (c) 2011, David Bau
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -121,18 +81,18 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import sys, re, inspect
 
 class _TemplateBuilder(object):
-  __pattern = re.compile(r"""\$(        # Directives begin with a $
+  __pattern = re.compile(r"""\$         # Directives begin with a $
+        (?![.(/'"])(                    # $. $( $/ $' $" do not require escape
         \$                            | # $$ is an escape for $
         [^\S\n]*\n                    | # $\n is a line continuation
         [_a-z][_a-z0-9]*              | # $simple Python identifier
         \{(?!\{)[^\}]*\}              | # ${...} expression to eval
         \{\{.*?\}\}                   | # ${{...}} multiline code to exec
-        <[_a-z][_a-z0-9]*>            | # $<sub_template> method call
-      )(?:(?:(?<=\}\})|(?<=>))[^\S\n]*\n)? # eat some trailing newlines
+      )((?<=\}\})[^\S\n]*\n|)           # eat trailing newline after }}
     """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
 
-  def __init__(self, constpat, emitpat, callpat=None):
-    self.constpat, self.emitpat, self.callpat = constpat, emitpat, callpat
+  def __init__(self, *args):
+    self.defn, self.start, self.constpat, self.emitpat, self.finish = args
 
   def __realign(self, str, spaces=''):
     """Removes any leading empty columns of spaces and an initial empty line"""
@@ -142,91 +102,57 @@ class _TemplateBuilder(object):
     margin = len(lspace) and min(lspace)
     return '\n'.join((spaces + l[margin:]) for l in lines)
 
-  def build(self, template, filename, s=''):
-    code = []
+  def __addcode(self, line, lineno, simple):
+    offset = lineno - self.extralines - len(self.code)
+    if offset <= 0 and simple and self.simple: self.code[-1] += ';' + line
+    else:
+      self.code.append('\n' * (offset - 1) + line);
+      self.extralines += max(0, offset - 1)
+    self.extralines += line.count('\n')
+    self.simple = simple
+
+  def build(self, template, filename, lineno, docline):
+    self.code = ['\n' * (lineno - 1) + self.defn, ' ' + self.start]
+    self.extralines, self.simple = max(0, lineno - 1), True
+    lineno += docline + (re.match(r'\s*\n', template) and 1 or 0)
     for i, part in enumerate(self.__pattern.split(self.__realign(template))):
-      if i % 2 == 0:
-        if part: code.append(s + self.constpat % repr(part))
-      else:
-        if not part or (part.startswith('<') and self.callpat is None):
-          raise SyntaxError('Unescaped $ in ' + filename)
-        elif part.endswith('\n'): continue
-        elif part == '$': code.append(s + self.emitpat % '"$"')
-        elif part.startswith('{{'): code.append(self.__realign(part[2:-2], s))
-        elif part.startswith('{'): code.append(s + self.emitpat % part[1:-1])
-        elif part.startswith('<'): code.append(s + self.callpat % part[1:-1])
-        else: code.append(s + self.emitpat % part)
-    return '\n'.join(code)
-
-class _TemplateMetaClass(type):
-  __builder = _TemplateBuilder(
-    'self.out.append(%s)', 'self.write(%s)', 'self.%s(vars())')
-
-  def __compile(cls, template, n):
-    globals = sys.modules[cls.__module__].__dict__
-    if '__file__' not in globals: filename = '<%s %s>' % (cls.__name__, n)
-    else: filename = '%s: <%s %s>' % (globals['__file__'], cls.__name__, n)
-    code = compile(cls.__builder.build(template, filename), filename, 'exec')
-    def expand(self, __dict = None, **kw):
-      if __dict: kw.update([i for i in __dict.iteritems() if i[0] not in kw])
-      kw['self'] = self
-      exec code in globals, kw
-    return expand
-
-  def __init__(cls, *args):
-    for attr, val in cls.__dict__.items():
-      if attr == 'template' or attr.endswith('_template'):
-        if isinstance(val, basestring):
-          setattr(cls, attr, cls.__compile(val, attr))
-    type.__init__(cls, *args)
-
-class StringTemplate(object):
-  """A base class for string template classes."""
-  __metaclass__ = _TemplateMetaClass
-
-  def __init__(self, *args, **kw):
-    self.out = []
-    self.template(*args, **kw)
-
-  def write(self, *args):
-    self.out.extend([str(a) for a in args])
-
-  def __str__(self):
-    return ''.join(self.out)
-
-# The original version of templet called StringTemplate "Template"
-Template = StringTemplate
-
-class UnicodeTemplate(object):
-  """A base class for unicode template classes."""
-  __metaclass__ = _TemplateMetaClass
-
-  def __init__(self, *args, **kw):
-    self.out = []
-    self.template(*args, **kw)
-
-  def write(self, *args):
-    self.out.extend([unicode(a) for a in args])
-
-  def __unicode__(self):
-    return u''.join(self.out)
-
-  def __str__(self):
-    return unicode(self).encode('utf-8')
+      if i % 3 == 0 and part:
+        self.__addcode(' ' + self.constpat % repr(part), lineno, True)
+      elif i % 3 == 1:
+        if not part:
+          raise SyntaxError('Unescaped $ in %s:%d' % (filename, lineno))
+        elif part == '$':
+          self.__addcode(' ' + self.constpat % '"%s"' % part, lineno, True)
+        elif part.startswith('{{'):
+          self.__addcode(self.__realign(part[2:-2], ' '),
+            lineno + (re.match(r'\{\{\s*\n', part) and 1 or 0), False)
+        elif part.startswith('{'):
+          self.__addcode(' ' + self.emitpat % part[1:-1], lineno, True)
+        elif not part.endswith('\n'):
+          self.__addcode(' ' + self.emitpat % part, lineno, True)
+      lineno += part.count('\n')
+    self.code.append(' ' + self.finish)
+    return '\n'.join(self.code)
 
 def _templatefunction(func, listname, stringtype):
-  globals, locals = sys.modules[func.__module__].__dict__, {}
-  if '__file__' not in globals: filename = '<%s>' % func.__name__
-  else: filename = '%s: <%s>' % (globals['__file__'], func.__name__)
-  builder = _TemplateBuilder('%s.append(%%s)' % listname,
-                             '%s.append(%s(%%s))' % (listname, stringtype))
+  globals, locals =  sys.modules[func.__module__].__dict__, {}
+  filename, lineno = func.func_code.co_filename, func.func_code.co_firstlineno
+  if func.__doc__ is None:
+    raise SyntaxError('No template string at %s:%d' % (filename, lineno))
+  try: # scan source code to find the docstring line number (2 if not found)
+    docline, (source, _) = 2, inspect.getsourcelines(func)
+    for lno, line in enumerate(source):
+      if re.match('(?:|[^#]*:)\\s*[ru]?[\'"]', line): docline = lno; break
+  except: pass
   args = inspect.getargspec(func)
-  code = [
-    'def %s%s:' % (func.__name__, inspect.formatargspec(*args)),
-    ' %s = []' % listname,
-    builder.build(func.__doc__, filename, ' '),
-    ' return "".join(%s)' % listname]
-  code = compile('\n'.join(code), filename, 'exec')
+  builder = _TemplateBuilder(
+      'def %s%s:' % (func.__name__, inspect.formatargspec(*args)),
+      '%s = []' % listname,
+      '%s.append(%%s)' % listname,
+      '%s.append(%s(%%s))' % (listname, stringtype),
+      'return "".join(%s)' % listname)
+  code_str = builder.build(func.__doc__, filename, lineno, docline)
+  code = compile(code_str, filename, 'exec')
   exec code in globals, locals
   return locals[func.__name__]
 
@@ -244,66 +170,8 @@ if __name__ == '__main__':
   def expect(actual, expected):
     global ok
     if expected != actual:
-      print "error - got:\n%s" % repr(actual)
+      print "error - expect: %s, got:\n%s" % (repr(expected), repr(actual))
       ok = False
-  class TestAll(Template):
-    """A test of all the $ forms"""
-    template = r"""
-      Bought: $count ${name}s$
-       at $$$price.
-      ${{
-        for i in xrange(count):
-          self.write(TestCalls(vars()), "\n")  # inherit all the local $vars
-      }}
-      Total: $$${"%.2f" % (count * price)}
-    """
-  class TestCalls(Template):
-    """A recursive test"""
-    template = "$name$i ${*[TestCalls(name=name[0], i=n) for n in xrange(i)]}"
-  expect(
-    str(TestAll(count=5, name="template call", price=1.23)),
-    "Bought: 5 template calls at $1.23.\n"
-    "template call0 \n"
-    "template call1 t0 \n"
-    "template call2 t0 t1 t0 \n"
-    "template call3 t0 t1 t0 t2 t0 t1 t0 \n"
-    "template call4 t0 t1 t0 t2 t0 t1 t0 t3 t0 t1 t0 t2 t0 t1 t0 \n"
-    "Total: $6.15\n")
-  class TestBase(Template):
-    template = r"""
-      <head>$<head_template></head>
-      <body>$<body_template></body>
-    """
-  class TestDerived(TestBase):
-    head_template = "<title>$name</title>"
-    body_template = "${TestAll(vars())}"
-  expect(
-    str(TestDerived(count=4, name="template call", price=2.88)),
-    "<head><title>template call</title></head>\n"
-    "<body>"
-    "Bought: 4 template calls at $2.88.\n"
-    "template call0 \n"
-    "template call1 t0 \n"
-    "template call2 t0 t1 t0 \n"
-    "template call3 t0 t1 t0 t2 t0 t1 t0 \n"
-    "Total: $11.52\n"
-    "</body>\n")
-  class TestUnicode(UnicodeTemplate):
-    template = u"""
-      \N{Greek Small Letter Pi} = $pi
-    """
-  expect(
-    unicode(TestUnicode(pi = 3.14)),
-    u"\N{Greek Small Letter Pi} = 3.14\n")
-  goterror = False
-  try:
-    class TestError(Template):
-      template = 'Cost of an error: $0'
-  except SyntaxError:
-    goterror = True
-  if not goterror:
-    print 'TestError failed'
-    ok = False
   @stringfunction
   def testBasic(name):
     "Hello $name."
@@ -322,4 +190,48 @@ if __name__ == '__main__':
   expect(
     testUnicode(count=10),
     u"\N{BLACK STAR}" * 10)
+  @stringfunction
+  def testmyrow(name, values):
+    '''
+    <tr><td>$name</td><td>${{
+       for val in values:
+         out.append(str(val))
+    }}</td></tr>
+    '''
+  expect(
+     testmyrow('prices', [1,2,3]),
+     "<tr><td>prices</td><td>123</td></tr>\n")
+  try:
+    got_exception = ''
+    def dummy_for_line(): pass
+    @stringfunction
+    def testsyntaxerror():
+      # extra line here
+      # another extra line here
+      '''
+      some text
+      $a$<'''
+  except SyntaxError, e:
+    got_exception = str(e).split(':')[-1]
+  expect(got_exception, str(dummy_for_line.func_code.co_firstlineno + 7))
+  try:
+    got_line = 0
+    def dummy_for_line2(): pass
+    @stringfunction
+    def testruntimeerror(a):
+      '''
+      some $a text
+      ${{
+        out.append(a) # just using up more lines
+      }}
+      some more text
+      $b text $a again'''
+    expect(testruntimeerror.func_code.co_firstlineno,
+           dummy_for_line2.func_code.co_firstlineno + 1)
+    testruntimeerror('hello')
+  except NameError, e:
+    import traceback
+    _, got_line, _, _ = traceback.extract_tb(sys.exc_info()[2], 10)[-1]
+  expect(got_line, dummy_for_line2.func_code.co_firstlineno + 9)
   if ok: print "OK"
+  else: print "FAIL"

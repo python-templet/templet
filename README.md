@@ -1,116 +1,149 @@
-# Python Templating
+# Python Templating with @stringfunction
 
-Here is a cute lightweight python templating module that supports inline python, speedy compilation, subtemplates, and subclassing, all with 70 lines of code.
+I've posted a new version of the templet.stringfunction utility I have discussed before. I have been using it to make a bunch of web UI in programming projects with my son (actually pretty sophisticated little projects - http://js.dabbler.org). This version reflects what's needed for a 2011-era web app.
 
-Basic usage looks like this:
+## What's New
 
-```
-import templet
+ * The old class-template idioms in the original version have been removed; they were slow and unwieldy. Now it's just @stringfunction and @unicodefunction.
+ * Common uses of `$` in javascript no longer need to be escaped in templates. Jquery `$.` and `$(` are very common, and regular expressions often have `$/` and `$'` and `$"`, so all these sequences now pass through the template without escape.
+ * Line numbers are aligned exactly so that both syntax errors and runtime errors in exception traces are reported on the correct line of the template file in which the code appears.
 
-class PoemTemplate(templet.Template):
-  template = "The $creature jumped over the $thing."
+Together these small changes - particularly accurate error line numbers - make @stringfunction much more usable for composing large templates for website development.
 
-print PoemTemplate(creature='cow', thing='moon')
-```
+## Usage
 
-Template strings are compiled into methods through the magic of python metaclasses, so they run fast.
-
-The class above actually becomes a class with a method called "template" that calls "write" several times. You can think of the class as being roughly equivalent to this:
+Usage is unchanged: just annotate a python function with @stringfunction or @unicodefunction, and then put the template text where the docstring would normally be. Leave the function body empty, and efficient code to concatenate the contents will be created.
 
 ```
-class PoemTemplate(templet.Template):
-  def template(self, creature=None, thing=None):
-    self.write("The ")
-    self.write(creature)
-    self.write(" jumped over the ")
-    self.write(thing)
-    self.write(".")
+  from templet import stringfunction
+  
+  @stringfunction
+  def myTemplate(animal, body):
+    "the $animal jumped over the $body."
+  
+  print myTemplate('cow', 'moon')
 ```
 
-Templates can contain `${...}` and `${{...}}` blocks with python code, so you are not limited to just variable substitution: you can use arbitrary python in your template. This straightforward approach of compiling a template into python is simple, yet powerful...
+This is turned into something like this:
 
-## Templates in Python
+```
+  def myTemplate(animal, body):
+    out = []
+    out.append("the ")
+    out.append(str(animal))
+    out.append(" jumped over the ")
+    out.append(str(body))
+    out.append(".")
+    return ''.join(out)
+```
 
-Why another python templating system?
-
-Python's built-in string interpolation is great for little messages, but its lack of inline code makes the % operator too clumsy for building larger strings like HTML files. There are more than a dozen "full" templating solutions aimed at making it easy to build HTML in python, but they are all too full-featured for my taste.
-
-For my weekend hacking projects, I don't really want to have to introduce a whole new language and install a big package just to build some strings. Why is it that Django and Cheetah call functions "filters" and make you register and invoke them with contortions like {{ var|foo:"bar" }} or ${var, foo="bar"}? Why do template systems invent their own versions of "if" and "while" and "def"? Python is a beautiful language, and I do not want to embed esperanto. I just want my templates to be python.
-
-A few people have made simple python templates that avoid overcomplexity. For example, James Tauber has played with overriding getitem to make % itself more powerful. I like his idea, and I like the power you get when making each template into a class, but I find the % technique too clumsy in practice.
-
-Tomer Filiba's lightweight Templite class is the solution I have seen that comes closest to exposing the simplicity of python in a lightweight template system. Wherever one of Filiba's templates is not literal text, it is python. Although Filiba does have his own template parser, he does not invent a new "if" statement or a new concept for function calls. I especially like the fact that Templite weighs in at just 40 lines of code with no dependencies.
-
-But maybe Templite is just slightly too simple. When building the not-very-complicated UI for the RPS arena, I ended up rolling a new solution, because found that I wanted some key things that Templite misses:
-
- * Access to globals (like imported modules) from inline code.
- * Object-orientation: access to "self", method calls, inheritance, etc.
- * Nice handling of indented text and other help with long strings in code.
- * Load-time compilation (and friendly compilation errors).
- * Syntactic sugar for common simple $vars and ${expressions()}.
- * The python templet module here provides all these things by synthesizing Filiba's idea and Tauber's style, mixing in the magic of metaclasses.
-
-## Keeping it Simple with Python Templets
-
-The template language understands the following forms:
+There are just six constructs that are supported, all starting with $:
 
 | syntax | meaning |
-|-------|---------|
-| `$myvar`	|	inserts the value of the variable 'myvar' |
-| `${...}`	|	evaluates the expression and inserts the result |
-| `${{...}}`	|	executes enclosed code; you can use `self.write(text)` to insert text |
-| `$<sub_template>`	|	shorthand for `${{self.sub_template(vars())}}` |
-| `$$`	|	an escape for a single $ |
-| `$` (at the end of a line)	|	a line continuation |
+|--------|---------|
+| `$myvar` | inserts the value of the variable `myvar` |
+| `${...}` |  evaluates the expression and inserts the result |
+| `${[...]}` |  runs a list comprehension and concatenates the results |
+| `${{...}}` | executes enclosed code; use `out.append(text)` to insert text |
+| `$$` | an escape for a single `$` |
+| `$` | (at the end of the line) is a line continuation |
 
-Code in a template has access to 'self' and can take advantage of methods, members, base classes, etc., like normal code in a method. The method 'self.write(text)' inserts text into the template. And any class attribute ending with `_template` will be compiled into a subtemplate method that can be called from code or by using `$<...>`. Subtemplates are helpful for decomposing a template and when subclassing.
+All ordinary uses of `$` in the template need to be escaped by doubling the `$$` - with the exception of (as mentioned above) `$.`, `$(`, `$/`, `$'`, and `$"`.
 
-A longer example:
+## Philosophy
 
-```
-import templet, cgi
+The philosophy behind templet is to introduce only the concepts necessary to simplify the construction of long strings in python; and then to encourage all other logic to be expressed using ordinary python.
 
-class RecipeTemplate(templet.Template):
-  template = r'''
-    <html><head><title>$dish</title></head>
-    <body>
-    $<header_template>
-    $<body_template>
-    </body></html>
-    '''
-  header_template = r'''
-    <h1>${cgi.escape(dish)}</h1>
-    '''
-  body_template = r'''
-    <ol>
-    ${{
-      for item in ingredients:
-        self.write('<li>', item, '\n')
-    }}
-    </ol>
-    '''
-```
+A @stringfunction function can do everything that you can do with any function that returns a string: it can be called recursively; it can have variable or keyword arguments; it can be a member of a package or a method of a class; and it can access global imports or invoke other packages. As a result, although the construct is extremely simple, it brings all the power of python to templates, and the @stringfunction idea scales very well.
 
-Notice that all the power of templets comes from python. To get HTML escaping, we just "import cgi" and call "cgi.escape()". To repeat things, we just use python's "for" loop. To make templates with holes that can be overridden, we just break up the template into multiple methods and use python inheritance. We could have added ordinary methods to the class and called them from the template as well. So writing a templet template is nothing special: we are just writing a python class.
+Beyond simple interpolation, templet does not invent any new syntax for data formatting. If you want to format a floating-point number, you can write ${"%2.3f" % num}; if you want to escape HTML sequences, just write ${cgi.escape(message)}. Not as brief as a specialized syntax, but easy to remember, brief enough, and readable to any python programmer.
 
-RecipeTemplate can be expanded as follows:
+Similarly, templet does not invent any new control flow or looping structures. To loop a template, you need to use a python loop or list comprension and call the subtemplate as a function:
 
 ```
-print RecipeTemplate(dish='burger', ingredients=['bun', 'beef', 'lettuce'])
+ @stringfunction
+ def doc_template(table):
+   """
+   <body>
+   <h1>${ table.name }</h1>
+   <table>
+   ${{
+     for item in table:
+       out.append(self.row_template(item))
+   }}
+   </table>
+   </body>
+   """
 ```
 
-And it can be subclassed like this:
+If you prefer list comprehensions, it is slightly more brief:
 
 ```
-class RecipeWithPriceTemplate(RecipeTemplate):
-  header_template = "<h1>${cgi.escape(dish)} - $$$price</h1>\n"
+ @stringfunction
+ def doc_template(table):
+   """
+   <body>
+   <h1>${ table.name }</h1>
+   <table>
+   ${[self.row_template(item) for item in table]}
+   </table>
+   </body>
+   """
 ```
 
-We get all the power and simplicity of python in our templates.
+The design encourages simple templates that read in straight-line fashion, an excellent practice in the long run. Although when invoking subtemplates you need to pass state, of course you can use @stringfunction to make methods and pass state on "self", or use object parameters.
 
-## The templet module
+## Details and Style
 
-How does it work? The idea is simple. When a templet.Template subclass is defined, a metaclass processes the class definition, and all the "template" class member strings are chopped up and expanded into pieces of straight-line code.
+Some tips/guidelines for using these annotations.
 
-When a template is instantiated, the main template() method is run and the written results are accumulated as a list of strings in "self.output". This list is concatenated when the instance is converted to a string.
+Whitespace can be important inside HTML, but for python readability you often want to indent things, so @unicodefunction / @stringfunction gives you a few tools:
 
+ * It identifies the number of leading spaces that are uniformly used to the left of the template and strips them.
+ * It strips the first line of the template, if empty.
+ * It allows you to use a $ at the end of a line for a line continuation.
+
+So my recommended style for multiline templates is:
+
+ * indent template text in the function as if it were python code.
+ * use a python triple-quote and put the opening quote on its own line.
+ * never indent HTML tags - they just get too deep, so put them all at column 0.
+ * when nesting gets confusing, for readability, just put one tag on each line.
+ * liberally use `$` continuations if layout demands no-whitespace.
+ * indent code inside ${{ and then put }} on its own line (a newline right after a closing }} is eaten).
+
+Relative indenting for python code inside ${{...}} is preserved using the same leading-space-stripping trick as is used for the templates themselves, so you can indent embedded python as normal, and you can start the indenting at whichever column feels natural. I usually indent embedded python by one more level.
+
+In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the $ in the column that you want to treat as column zero.
+
+One question is whether the opening `"""` should be on the same line as the def or its own line. Either style is supported - for line number purposes, the program source is just scanned to discover the position of the opening quote - but for clarity I usually put the opening quote on its own line.
+
+For example, if you want to achieve all on one line the following:
+
+
+```
+<tr><td class="..."><a class="..." href="/foo/bar/...">....</a></td><td class="...">...</td></tr>
+```
+
+Then you could use:
+
+```
+@unicodefunction
+def table_row(row_data):
+  """
+  <tr>$
+  <td class="${col1_class} def">$
+  <a class="${link_class}"$
+   href="/foo/bar/${cgi.escape(filename, True)}">$
+  ${cgi.escape(link_text})}$
+  </a>$
+  </td>$
+  <td class="${col2_class}">$
+  ${{
+    if (enrolled): out.append('enrolled')
+  }}
+  ${cgi.escape(label_text)}$
+  </td>$
+  </tr>
+  """
+```
