@@ -1,4 +1,4 @@
-"""A lightweight python templating engine.  Templet version 3.1
+"""A lightweight python templating engine.  Templet version 3.2
 
 Lightweight templating idiom using @stringfunction and @unicodefunction.
 
@@ -19,6 +19,7 @@ The template language understands the following forms:
 
     $myvar - inserts the value of the variable 'myvar'
     ${...} - evaluates the expression and inserts the result
+    ${[...]} - evaluates the list comprehension and inserts all the results
     ${{...}} - executes enclosed code; use 'out.append(text)' to insert text
 
 In addition the following special codes are recognized:
@@ -86,13 +87,14 @@ class _TemplateBuilder(object):
         \$                            | # $$ is an escape for $
         [^\S\n]*\n                    | # $\n is a line continuation
         [_a-z][_a-z0-9]*              | # $simple Python identifier
-        \{(?!\{)[^\}]*\}              | # ${...} expression to eval
+        \{(?![[{])[^\}]*\}            | # ${...} expression to eval
+        \{\[.*?\]\}                   | # ${[...]} list comprehension to eval
         \{\{.*?\}\}                   | # ${{...}} multiline code to exec
       )((?<=\}\})[^\S\n]*\n|)           # eat trailing newline after }}
     """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
 
-  def __init__(self, *args):
-    self.defn, self.start, self.constpat, self.emitpat, self.finish = args
+  def __init__(s, *args):
+    s.defn, s.start, s.constpat, s.emitpat, s.listpat, s.finish = args
 
   def __realign(self, str, spaces=''):
     """Removes any leading empty columns of spaces and an initial empty line"""
@@ -126,6 +128,8 @@ class _TemplateBuilder(object):
         elif part.startswith('{{'):
           self.__addcode(self.__realign(part[2:-2], ' '),
             lineno + (re.match(r'\{\{\s*\n', part) and 1 or 0), False)
+        elif part.startswith('{['):
+          self.__addcode(' ' + self.listpat % part[2:-2], lineno, True)
         elif part.startswith('{'):
           self.__addcode(' ' + self.emitpat % part[1:-1], lineno, True)
         elif not part.endswith('\n'):
@@ -150,6 +154,7 @@ def _templatefunction(func, listname, stringtype):
       '%s = []' % listname,
       '%s.append(%%s)' % listname,
       '%s.append(%s(%%s))' % (listname, stringtype),
+      '%s.extend(map(%s, [%%s]))' % (listname, stringtype),
       'return "".join(%s)' % listname)
   code_str = builder.build(func.__doc__, filename, lineno, docline)
   code = compile(code_str, filename, 'exec')
@@ -183,6 +188,12 @@ if __name__ == '__main__':
   expect(
     testReps('foo'),
     "foofoofoofoofoo")
+  @stringfunction
+  def testList(a): r"""
+    ${[testBasic(x) for x in a]}"""
+  expect(
+    testList(['David', 'Kevin']),
+    "Hello David.Hello Kevin.")
   @unicodefunction
   def testUnicode(count=4): u"""
     ${{ if not count: return '' }}
