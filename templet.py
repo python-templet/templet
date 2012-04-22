@@ -1,4 +1,4 @@
-"""A lightweight python templating engine.  Templet version 3.2
+"""A lightweight python templating engine.  Templet version 3.3
 
 Lightweight templating idiom using @stringfunction and @unicodefunction.
 
@@ -50,7 +50,7 @@ For details, see http://davidbau.com/templet
 
 Templet is posted by David Bau under BSD-license terms.
 
-Copyright (c) 2011, David Bau
+Copyright (c) 2012, David Bau
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -98,7 +98,7 @@ class _TemplateBuilder(object):
 
   def __realign(self, str, spaces=''):
     """Removes any leading empty columns of spaces and an initial empty line"""
-    lines = str.splitlines();
+    lines = str.splitlines()
     if lines and not lines[0].strip(): del lines[0]
     lspace = [len(l) - len(l.lstrip()) for l in lines if l.lstrip()]
     margin = len(lspace) and min(lspace)
@@ -106,7 +106,8 @@ class _TemplateBuilder(object):
 
   def __addcode(self, line, lineno, simple):
     offset = lineno - self.extralines - len(self.code)
-    if offset <= 0 and simple and self.simple: self.code[-1] += ';' + line
+    if offset <= 0 and simple and self.simple and self.code:
+      self.code[-1] += ';' + line
     else:
       self.code.append('\n' * (offset - 1) + line);
       self.extralines += max(0, offset - 1)
@@ -147,7 +148,8 @@ def _templatefunction(func, listname, stringtype):
     docline, (source, _) = 2, inspect.getsourcelines(func)
     for lno, line in enumerate(source):
       if re.match('(?:|[^#]*:)\\s*[ru]?[\'"]', line): docline = lno; break
-  except: pass
+  except:
+    docline = 2
   args = inspect.getargspec(func)
   builder = _TemplateBuilder(
       'def %s%s:' % (func.__name__, inspect.formatargspec(*args)),
@@ -169,6 +171,7 @@ def unicodefunction(func):
   """Function attribute for unicode template functions"""
   return _templatefunction(func, listname='out', stringtype='unicode')
 
+##############################################################################
 # When executed as a script, run some testing code.
 if __name__ == '__main__':
   ok = True
@@ -244,5 +247,21 @@ if __name__ == '__main__':
     import traceback
     _, got_line, _, _ = traceback.extract_tb(sys.exc_info()[2], 10)[-1]
   expect(got_line, dummy_for_line2.func_code.co_firstlineno + 9)
+  exec("""if True:
+    @stringfunction
+    def testnosource(a):
+      "${[c for c in reversed(a)]} is '$a' backwards." """
+  )
+  expect(testnosource("hello"), "olleh is 'hello' backwards.")
+  error_line = None
+  try:
+    exec("""if True:
+      @stringfunction
+      def testnosource_error(a):
+        "${[c for c in reversed a]} is '$a' backwards." """
+    )
+  except SyntaxError, e:
+    error_line = re.search('line [0-9]*', str(e)).group(0)
+  expect(error_line, 'line 4')
   if ok: print "OK"
   else: print "FAIL"
