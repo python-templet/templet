@@ -60,7 +60,7 @@ The philosophy behind templet is to introduce only the concepts necessary to sim
 
 A @templet function can do everything that you can do with any function that returns a string: it can be called recursively; it can have variable or keyword arguments; it can be a member of a package or a method of a class; and it can access global imports or invoke other packages. As a result, although the construct is extremely simple, it brings all the power of python to templates, and the @templet idea scales very well.
 
-Beyond simple interpolation, templet does not invent any new syntax for data formatting. If you want to format a floating-point number, you can write ${"%2.3f" % num}; if you want to escape HTML sequences, just write ${cgi.escape(message)}. Not as brief as a specialized syntax, but easy to remember, brief enough, and readable to any python programmer.
+Beyond simple interpolation, templet does not invent any new syntax for data formatting. If you want to format a floating-point number, you can write `${"%2.3f" % num}`; if you want to escape HTML sequences, just write `${cgi.escape(message)}`. Not as brief as a specialized syntax, but easy to remember, brief enough, and readable to any python programmer.
 
 Similarly, templet does not invent any new control flow or looping structures. To loop a template, you need to use a python loop or list comprension and call the subtemplate as a function:
 
@@ -105,7 +105,7 @@ Whitespace can be important inside HTML, but for python readability you often wa
 
  * It identifies the number of leading spaces that are uniformly used to the left of the template and strips them.
  * It strips the first line of the template, if empty.
- * It allows you to use a $ at the end of a line for a line continuation.
+ * It allows you to use a `$` at the end of a line for a line continuation.
 
 So my recommended style for multiline templates is:
 
@@ -114,13 +114,13 @@ So my recommended style for multiline templates is:
  * never indent HTML tags - they just get too deep, so put them all at column 0.
  * when nesting gets confusing, for readability, just put one tag on each line.
  * liberally use `$` continuations if layout demands no-whitespace.
- * indent code inside ${{ and then put }} on its own line (a newline right after a closing }} is eaten).
+ * indent code inside `${{` and then put `}}` on its own line (a newline right after a closing `}}` is eaten).
 
-Relative indenting for python code inside ${{...}} is preserved using the same leading-space-stripping trick as is used for the templates themselves, so you can indent embedded python as normal, and you can start the indenting at whichever column feels natural. I usually indent embedded python by one more level.
+Relative indenting for python code inside `${{...}}` is preserved using the same leading-space-stripping trick as is used for the templates themselves, so you can indent embedded python as normal, and you can start the indenting at whichever column feels natural. I usually indent embedded python by one more level.
 
-In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the $ in the column that you want to treat as column zero.
+In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the `$` in the column that you want to treat as column zero.
 
-One question is whether the opening `"""` should be on the same line as the def or its own line. For clarity I usually put the opening quote on its own line, but to get columns to line up correctly, I eat the newline with a python line continuation immediately.
+One question is whether the opening `"""` should be on the same line as the def or its own line. For clarity I usually put the opening quote on its own line, but to get columns to line up correctly, I eat the newline with a python line continuation immediately `"""\`.
 
 For example, if you want to achieve all on one line the following:
 
