@@ -1,52 +1,59 @@
-"""A lightweight python templating engine.  Templet version 3.3
+# coding: utf-8
+"""
+A lightweight python templating engine.
+Templet version 4.0
 
-Lightweight templating idiom using @stringfunction and @unicodefunction.
-
-Each template function is marked with the attribute @stringfunction
-or @unicodefunction.  Template functions will be rewritten to expand
-their document string as a template and return the string result.
+Each template function is marked with the decorator @templet.
+Template functions will be rewritten to expand their document
+string as a template and return the string result.
 For example:
 
-    from templet import stringfunction
+    from templet import templet
 
-    @stringfunction
-    def myTemplate(animal, body):
-      "the $animal jumped over the $body."
+    @templet
+    def jumped(animal, body):
+        "the $animal jumped over the $body."
 
-    print myTemplate('cow', 'moon')
+    print(jumped('cow', 'moon'))
 
 The template language understands the following forms:
 
-    $myvar - inserts the value of the variable 'myvar'
-    ${...} - evaluates the expression and inserts the result
+    $var     - inserts the value of the variable 'var'
+    ${...}   - evaluates the expression and inserts the result
     ${[...]} - evaluates the list comprehension and inserts all the results
     ${{...}} - executes enclosed code; use 'out.append(text)' to insert text
 
 In addition the following special codes are recognized:
-    $$ - an escape for a single $
-    $ (at the end of the line) - a line continuation
-    $( $. - translates directly to $( and $. so jquery does not need escaping
+
+    $$       - an escape for a single $
+    $        - a line continuation (only at the end of the line)
+    $( $.    - translates directly to $( and $. so jquery does not need
+               escaping
     $/ $' $" - also passed through so the end of a regex does not need escaping
 
 Template functions are compiled into code that accumulates a list of
 strings in a local variable 'out', and then returns the concatenation
-of them.  If you want do do complicated computation, you can append
+of them.  If you want to do complicated computation, you can append
 to the 'out' variable directly inside a ${{...}} block, for example:
 
-    @stringfunction
-    def myrow(name, values):
-      '''
-      <tr><td>$name</td><td>${{
-         for val in values:
-           out.append(string(val))
-      }}</td></tr>
-      '''
+    @templet
+    def single_cell_row(name, values):
+        '''
+        <tr><td>$name</td><td>${{
+             for val in values:
+                 out.append(string(val))
+        }}</td></tr>
+        '''
 
 Generated code is arranged so that error line numbers are reported as
 accurately as possible.
 
 Templet is by David Bau and was inspired by Tomer Filiba's Templite class.
 For details, see http://davidbau.com/templet
+
+Modifications for 4.0 is by Krisztián Fekete.
+
+----
 
 Templet is posted by David Bau under BSD-license terms.
 
@@ -57,15 +64,15 @@ Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
     1. Redistributions of source code must retain the above copyright notice,
-       this list of conditions and the following disclaimer.
+         this list of conditions and the following disclaimer.
 
     2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
+         notice, this list of conditions and the following disclaimer in the
+         documentation and/or other materials provided with the distribution.
 
     3. Neither the name of Templet nor the names of its contributors may
-       be used to endorse or promote products derived from this software
-       without specific prior written permission.
+         be used to endorse or promote products derived from this software
+         without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -79,189 +86,169 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import sys, re, inspect
 
-class _TemplateBuilder(object):
-  __pattern = re.compile(r"""\$         # Directives begin with a $
-        (?![.(/'"])(                    # $. $( $/ $' $" do not require escape
-        \$                            | # $$ is an escape for $
-        [^\S\n]*\n                    | # $\n is a line continuation
-        [_a-z][_a-z0-9]*              | # $simple Python identifier
-        \{(?![[{])[^\}]*\}            | # ${...} expression to eval
-        \{\[.*?\]\}                   | # ${[...]} list comprehension to eval
-        \{\{.*?\}\}                   | # ${{...}} multiline code to exec
-      )((?<=\}\})[^\S\n]*\n|)           # eat trailing newline after }}
-    """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
 
-  def __init__(s, *args):
-    s.defn, s.start, s.constpat, s.emitpat, s.listpat, s.finish = args
+import inspect
+import re
+import sys
 
-  def __realign(self, str, spaces=''):
-    """Removes any leading empty columns of spaces and an initial empty line"""
+__all__ = ['templet']
+
+
+if sys.version_info.major == 2:
+    def func_code(func):
+        return func.func_code
+
+    def func_globals(func):
+        return func.func_globals
+
+    def signature(func):
+        return inspect.formatargspec(*inspect.getargspec(func))
+else:
+    def func_code(func):
+        return func.__code__
+
+    def func_globals(func):
+        return func.__globals__
+
+    signature = inspect.signature  # >= 3.3
+
+
+def templet(func):
+    """
+        Decorator for template functions
+
+        @templet
+        def jumped(animal, body):
+            "the $animal jumped over the $body."
+
+        print(jumped('cow', 'moon'))
+
+    """
+    locals = {}
+    exec(compile_doc(func), func_globals(func), locals)
+    return locals[func.__name__]
+
+
+def compile_doc(func):
+    filename = func_code(func).co_filename
+    lineno = func_code(func).co_firstlineno
+    if func.__doc__ is None:
+        raise SyntaxError(
+            'No template string at %s, line %d' % (filename, lineno))
+    source = FunctionSource(func, lineno)
+    source.skip_lines(get_docline(func))
+    for i, part in enumerate(RE_DIRECTIVE.split(reindent(func.__doc__))):
+        if i % 3 == 0 and part:
+            source.add(CONSTANT(part))
+        elif i % 3 == 1:
+            if not part:
+                raise SyntaxError(
+                    'Unescaped $ in %s, line %d' % (filename, source.lineno))
+            elif part == '$':
+                source.add(CONSTANT('$'))
+            elif part.startswith('{{'):
+                source.add(CODE_BLOCK(part[2:-2]), simple=False)
+            elif part.startswith('{['):
+                source.add(LIST_COMPREHENSION(part[2:-2]))
+            elif part.startswith('{'):
+                source.add(EVAL(part[1:-1]))
+            elif not part.endswith('\n'):
+                source.add(EVAL(part))
+        source.skip_lines(part.count('\n'))
+    source.add(FINISH)
+    return compile(source.code, filename, 'exec')
+
+RE_DIRECTIVE = re.compile(
+    """
+        [$]                             # Directives begin with a $
+          (?![.(/'"])                   # Except $. $( $/ $' $" !!!
+        (
+          [$]                         | # $$ is an escape for $
+          WHITESPACE-TO-EOL           | # $\\n is a line continuation
+          [_a-z][_a-z0-9]*            | # $simple Python identifier
+          [{]    (?![[{])[^}]*    [}] | # ${...} expression to eval
+          [{][[] .*?           []][}] | # ${[...]} list comprehension to eval
+          [{][{] .*?           [}][}] | # ${{...}} multiline code to exec
+        )
+        (
+          (?<=[}][}])                   # after }}
+          WHITESPACE-TO-EOL             #   eat trailing newline
+          |                             #   if any
+        )
+    """
+    .replace("WHITESPACE-TO-EOL", r"[^\S\n]*\n"),
+    re.IGNORECASE | re.VERBOSE | re.DOTALL)
+
+
+def reindent(str, spaces=''):
+    """
+        Removes any leading empty columns of spaces
+    """
     lines = str.splitlines()
-    if lines and not lines[0].strip(): del lines[0]
     lspace = [len(l) - len(l.lstrip()) for l in lines if l.lstrip()]
     margin = len(lspace) and min(lspace)
     return '\n'.join((spaces + l[margin:]) for l in lines)
 
-  def __addcode(self, line, lineno, simple):
-    offset = lineno - self.extralines - len(self.code)
-    if offset <= 0 and simple and self.simple and self.code:
-      self.code[-1] += ';' + line
-    else:
-      self.code.append('\n' * (offset - 1) + line);
-      self.extralines += max(0, offset - 1)
-    self.extralines += line.count('\n')
-    self.simple = simple
 
-  def build(self, template, filename, lineno, docline):
-    self.code = ['\n' * (lineno - 1) + self.defn, ' ' + self.start]
-    self.extralines, self.simple = max(0, lineno - 1), True
-    lineno += docline + (re.match(r'\s*\n', template) and 1 or 0)
-    for i, part in enumerate(self.__pattern.split(self.__realign(template))):
-      if i % 3 == 0 and part:
-        self.__addcode(' ' + self.constpat % repr(part), lineno, True)
-      elif i % 3 == 1:
-        if not part:
-          raise SyntaxError('Unescaped $ in %s:%d' % (filename, lineno))
-        elif part == '$':
-          self.__addcode(' ' + self.constpat % '"%s"' % part, lineno, True)
-        elif part.startswith('{{'):
-          self.__addcode(self.__realign(part[2:-2], ' '),
-            lineno + (re.match(r'\{\{\s*\n', part) and 1 or 0), False)
-        elif part.startswith('{['):
-          self.__addcode(' ' + self.listpat % part[2:-2], lineno, True)
-        elif part.startswith('{'):
-          self.__addcode(' ' + self.emitpat % part[1:-1], lineno, True)
-        elif not part.endswith('\n'):
-          self.__addcode(' ' + self.emitpat % part, lineno, True)
-      lineno += part.count('\n')
-    self.code.append(' ' + self.finish)
-    return '\n'.join(self.code)
+def DEF(func):
+    return 'def %s%s:' % (func.__name__, signature(func))
 
-def _templatefunction(func, listname, stringtype):
-  globals, locals =  sys.modules[func.__module__].__dict__, {}
-  filename, lineno = func.func_code.co_filename, func.func_code.co_firstlineno
-  if func.__doc__ is None:
-    raise SyntaxError('No template string at %s:%d' % (filename, lineno))
-  try: # scan source code to find the docstring line number (2 if not found)
-    docline, (source, _) = 2, inspect.getsourcelines(func)
-    for lno, line in enumerate(source):
-      if re.match('(?:|[^#]*:)\\s*[ru]?[\'"]', line): docline = lno; break
-  except:
-    docline = 2
-  args = inspect.getargspec(func)
-  builder = _TemplateBuilder(
-      'def %s%s:' % (func.__name__, inspect.formatargspec(*args)),
-      '%s = []' % listname,
-      '%s.append(%%s)' % listname,
-      '%s.append(%s(%%s))' % (listname, stringtype),
-      '%s.extend(map(%s, [%%s]))' % (listname, stringtype),
-      'return "".join(%s)' % listname)
-  code_str = builder.build(func.__doc__, filename, lineno, docline)
-  code = compile(code_str, filename, 'exec')
-  exec code in globals, locals
-  return locals[func.__name__]
 
-def stringfunction(func):
-  """Function attribute for string template functions"""
-  return _templatefunction(func, listname='out', stringtype='str')
+def CODE_BLOCK(block):
+    return reindent(block, ' ')
 
-def unicodefunction(func):
-  """Function attribute for unicode template functions"""
-  return _templatefunction(func, listname='out', stringtype='unicode')
+START = ' out = []'
+CONSTANT = ' out.append({!r})'.format
+LIST_COMPREHENSION = ' out.extend(map("".__class__, [{}]))'.format
+EVAL = ' out.append("".__class__({}))'.format
+FINISH = ' return "".join(out)'
 
-##############################################################################
-# When executed as a script, run some testing code.
-if __name__ == '__main__':
-  ok = True
-  def expect(actual, expected):
-    global ok
-    if expected != actual:
-      print "error - expect: %s, got:\n%s" % (repr(expected), repr(actual))
-      ok = False
-  @stringfunction
-  def testBasic(name):
-    "Hello $name."
-  expect(testBasic('Henry'), "Hello Henry.")
-  @stringfunction
-  def testReps(a, count=5): r"""
-    ${{ if count == 0: return '' }}
-    $a${testReps(a, count - 1)}"""
-  expect(
-    testReps('foo'),
-    "foofoofoofoofoo")
-  @stringfunction
-  def testList(a): r"""
-    ${[testBasic(x) for x in a]}"""
-  expect(
-    testList(['David', 'Kevin']),
-    "Hello David.Hello Kevin.")
-  @unicodefunction
-  def testUnicode(count=4): u"""
-    ${{ if not count: return '' }}
-    \N{BLACK STAR}${testUnicode(count - 1)}"""
-  expect(
-    testUnicode(count=10),
-    u"\N{BLACK STAR}" * 10)
-  @stringfunction
-  def testmyrow(name, values):
+
+class FunctionSource:
+
+    def __init__(self, func, lineno):
+        self.parts = [
+            '\n' * (lineno - 2),
+            DEF(func),
+            START]
+        self.extralines = max(0, lineno - 1)
+        self.simple = True
+        self.lineno = lineno
+
+    def skip_lines(self, lines):
+        self.lineno += lines
+
+    def add(self, line, simple=True):
+        offset = self.lineno - self.extralines - len(self.parts) + 1
+        if offset <= 0 and simple and self.simple:
+            self.parts[-1] += ';' + line
+        else:
+            self.parts.append('\n' * (offset - 1) + line)
+            self.extralines += max(0, offset - 1)
+        self.extralines += line.count('\n')
+        self.simple = simple
+
+    @property
+    def code(self):
+        return '\n'.join(self.parts)
+
+
+def get_docline(func):
     '''
-    <tr><td>$name</td><td>${{
-       for val in values:
-         out.append(str(val))
-    }}</td></tr>
+        Scan source code to find the docstring line number (2 if not found)
     '''
-  expect(
-     testmyrow('prices', [1,2,3]),
-     "<tr><td>prices</td><td>123</td></tr>\n")
-  try:
-    got_exception = ''
-    def dummy_for_line(): pass
-    @stringfunction
-    def testsyntaxerror():
-      # extra line here
-      # another extra line here
-      '''
-      some text
-      $a$<'''
-  except SyntaxError, e:
-    got_exception = str(e).split(':')[-1]
-  expect(got_exception, str(dummy_for_line.func_code.co_firstlineno + 7))
-  try:
-    got_line = 0
-    def dummy_for_line2(): pass
-    @stringfunction
-    def testruntimeerror(a):
-      '''
-      some $a text
-      ${{
-        out.append(a) # just using up more lines
-      }}
-      some more text
-      $b text $a again'''
-    expect(testruntimeerror.func_code.co_firstlineno,
-           dummy_for_line2.func_code.co_firstlineno + 1)
-    testruntimeerror('hello')
-  except NameError, e:
-    import traceback
-    _, got_line, _, _ = traceback.extract_tb(sys.exc_info()[2], 10)[-1]
-  expect(got_line, dummy_for_line2.func_code.co_firstlineno + 9)
-  exec("""if True:
-    @stringfunction
-    def testnosource(a):
-      "${[c for c in reversed(a)]} is '$a' backwards." """
-  )
-  expect(testnosource("hello"), "olleh is 'hello' backwards.")
-  error_line = None
-  try:
-    exec("""if True:
-      @stringfunction
-      def testnosource_error(a):
-        "${[c for c in reversed a]} is '$a' backwards." """
-    )
-  except SyntaxError, e:
-    error_line = re.search('line [0-9]*', str(e)).group(0)
-  expect(error_line, 'line 4')
-  if ok: print "OK"
-  else: print "FAIL"
+    try:
+        docline = 2
+        (source, _) = inspect.getsourcelines(func)
+        for lno, line in enumerate(source):
+            if re.match('(?:|[^#]*:)\\s*[ru]?[\'"]', line):
+                docline = lno
+                break
+    except:
+        docline = 2
+    return docline
