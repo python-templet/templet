@@ -115,7 +115,11 @@ else:
     def func_globals(func):
         return func.__globals__
 
-    signature = inspect.signature  # >= 3.3
+    if hasattr(inspect, 'signature'):
+        signature = inspect.signature  # >= python 3.3
+    else:
+        def signature(func):
+            return inspect.formatargspec(*inspect.getargspec(func))
 
 
 def templet(func):

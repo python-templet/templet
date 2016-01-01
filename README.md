@@ -1,27 +1,29 @@
-# Python Templating with @stringfunction
+# Python Templating with @templet
 
-I've posted a new version of the templet.stringfunction utility I have discussed before. I have been using it to make a bunch of web UI in programming projects with my son (actually pretty sophisticated little projects - http://js.dabbler.org). This version reflects what's needed for a 2011-era web app.
+Here is an elegant lightweight python templating module that supports inline python, speedy compilation, subtemplates, and subclassing, all in a simple decorator module implemented in about 125 lines of python.
 
 ## What's New
 
- * The old class-template idioms in the original version have been removed; they were slow and unwieldy. Now it's just @stringfunction and @unicodefunction.
- * Common uses of `$` in javascript no longer need to be escaped in templates. Jquery `$.` and `$(` are very common, and regular expressions often have `$/` and `$'` and `$"`, so all these sequences now pass through the template without escape.
- * Line numbers are aligned exactly so that both syntax errors and runtime errors in exception traces are reported on the correct line of the template file in which the code appears.
+Templet was created by David Bau, and modifications for version 4 are by Krisztián Fekete. Version 4 adds:
 
-Together these small changes - particularly accurate error line numbers - make @stringfunction much more usable for composing large templates for website development.
+ * Python 3 support.
+ * Proper unit tests, verifying python2, python3, and pypy support.
+ * Support only unicode strings (no bytestrings).
+ * Removed special case for empty-first-newline.
+ * Cleaned up code for readability.
 
 ## Usage
 
-Usage is unchanged: just annotate a python function with @stringfunction or @unicodefunction, and then put the template text where the docstring would normally be. Leave the function body empty, and efficient code to concatenate the contents will be created.
+To use templet, just annotate a python function with @templet, and then put the template text where the docstring would normally be. Leave the function body empty, and efficient code to concatenate the contents will be created.
 
 ```
-  from templet import stringfunction
+  from templet import templet
   
-  @stringfunction
+  @templet
   def myTemplate(animal, body):
     "the $animal jumped over the $body."
   
-  print myTemplate('cow', 'moon')
+  print(myTemplate('cow', 'moon'))
 ```
 
 This is turned into something like this:
@@ -50,18 +52,20 @@ There are just six constructs that are supported, all starting with $:
 
 All ordinary uses of `$` in the template need to be escaped by doubling the `$$` - with the exception of (as mentioned above) `$.`, `$(`, `$/`, `$'`, and `$"`.
 
+In the actual generated code, line numbers are aligned exactly so that both syntax errors and runtime errors in exception traces are reported on the correct line of the template file in which the code appears.
+
 ## Philosophy
 
 The philosophy behind templet is to introduce only the concepts necessary to simplify the construction of long strings in python; and then to encourage all other logic to be expressed using ordinary python.
 
-A @stringfunction function can do everything that you can do with any function that returns a string: it can be called recursively; it can have variable or keyword arguments; it can be a member of a package or a method of a class; and it can access global imports or invoke other packages. As a result, although the construct is extremely simple, it brings all the power of python to templates, and the @stringfunction idea scales very well.
+A @templet function can do everything that you can do with any function that returns a string: it can be called recursively; it can have variable or keyword arguments; it can be a member of a package or a method of a class; and it can access global imports or invoke other packages. As a result, although the construct is extremely simple, it brings all the power of python to templates, and the @templet idea scales very well.
 
 Beyond simple interpolation, templet does not invent any new syntax for data formatting. If you want to format a floating-point number, you can write ${"%2.3f" % num}; if you want to escape HTML sequences, just write ${cgi.escape(message)}. Not as brief as a specialized syntax, but easy to remember, brief enough, and readable to any python programmer.
 
 Similarly, templet does not invent any new control flow or looping structures. To loop a template, you need to use a python loop or list comprension and call the subtemplate as a function:
 
 ```
- @stringfunction
+ @templet
  def doc_template(table):
    """
    <body>
@@ -79,7 +83,7 @@ Similarly, templet does not invent any new control flow or looping structures. T
 If you prefer list comprehensions, it is slightly more brief:
 
 ```
- @stringfunction
+ @templet
  def doc_template(table):
    """
    <body>
@@ -91,13 +95,13 @@ If you prefer list comprehensions, it is slightly more brief:
    """
 ```
 
-The design encourages simple templates that read in straight-line fashion, an excellent practice in the long run. Although when invoking subtemplates you need to pass state, of course you can use @stringfunction to make methods and pass state on "self", or use object parameters.
+The design encourages simple templates that read in straight-line fashion, an excellent practice in the long run. Although when invoking subtemplates you need to pass state, of course you can use @templet to make methods and pass state on "self", or use object parameters.
 
 ## Details and Style
 
 Some tips/guidelines for using these annotations.
 
-Whitespace can be important inside HTML, but for python readability you often want to indent things, so @unicodefunction / @stringfunction gives you a few tools:
+Whitespace can be important inside HTML, but for python readability you often want to indent things, so @templet gives you a few tools:
 
  * It identifies the number of leading spaces that are uniformly used to the left of the template and strips them.
  * It strips the first line of the template, if empty.
@@ -116,7 +120,7 @@ Relative indenting for python code inside ${{...}} is preserved using the same l
 
 In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the $ in the column that you want to treat as column zero.
 
-One question is whether the opening `"""` should be on the same line as the def or its own line. Either style is supported - for line number purposes, the program source is just scanned to discover the position of the opening quote - but for clarity I usually put the opening quote on its own line.
+One question is whether the opening `"""` should be on the same line as the def or its own line. For clarity I usually put the opening quote on its own line, but to get columns to line up correctly, I eat the newline with a python line continuation immediately.
 
 For example, if you want to achieve all on one line the following:
 
@@ -128,9 +132,9 @@ For example, if you want to achieve all on one line the following:
 Then you could use:
 
 ```
-@unicodefunction
+@templet
 def table_row(row_data):
-  """
+  """\
   <tr>$
   <td class="${col1_class} def">$
   <a class="${link_class}"$

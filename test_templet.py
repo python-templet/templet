@@ -210,8 +210,12 @@ def main():
         if os.system(cmd):
             sys.exit(1)
     for src in ('templet.py', 'test_templet.py'):
-        run('flake8 ' + src)
-    for python in ('python2', 'python3', 'pypy'):
+        run('env/bin/flake8 --ignore E701 ' + src)
+    for python in (
+            'python2',
+            'python3',
+            'pypy-4.0.1-linux_x86_64-portable/bin/pypy',
+            'pypy3-2.4-linux_x86_64-portable/bin/pypy3'):
         run(python + ' -m unittest test_templet')
 
 
