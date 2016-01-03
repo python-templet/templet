@@ -47,6 +47,14 @@ class Template:
         """($$ $.$($/$'$")"""
 
     @templet
+    def indented(self, x):
+        '''\
+        $
+           var val
+           x   $x
+        '''
+
+    @templet
     def html_cell_concat_values(self, name, values):
         '''\
         <tr><td>$name</td><td>${{
@@ -102,6 +110,11 @@ class Test(unittest.TestCase):
             "\N{BLACK STAR}" * 10,
             self.template.black_stars(count=10))
 
+    def test_indented(self):
+        self.assertEqual(
+            "   var val\n   x   11\n",
+            self.template.indented(11))
+
     def test_list_comprehension(self):
         self.assertEqual(
             "Hello David.Hello Kevin.",
@@ -133,6 +146,24 @@ class Test(unittest.TestCase):
         #
         self.assertEqual(first_line(marker) + 8, error_line)
 
+    def test_syntax_error_with_continuation(self):
+        error_line = 0
+        #
+        try:
+            def marker(): pass         # 0
+
+            @templet                   # 2
+            def testsyntaxerror():     # 3
+                # extra line here      # 4
+                # another extra line here
+                '''\
+                some text
+                $a$<'''                # 8
+        except SyntaxError as e:
+            error_line = line_of_syntax_error(e)
+        #
+        self.assertEqual(first_line(marker) + 8, error_line)
+
     def test_syntax_error_in_multiline_code_block(self):
         error_line = 0
         #
@@ -157,7 +188,32 @@ class Test(unittest.TestCase):
 
         @templet                       # 2
         def testruntimeerror(a):       # 3
-            '''                        # 4
+            '''
+            some $a text               # 5
+            ${{                        # 6
+                out.append(a) # just using up more lines
+            }}                         # 8
+            some more text             # 9
+            $b text $a again'''        # 10
+        self.assertEqual(
+            first_line(marker) + 2,
+            first_line(testruntimeerror))
+        #
+        try:
+            testruntimeerror('hello')
+        except NameError:
+            error_line = line_of_exception()
+        #
+        self.assertEqual(first_line(marker) + 10, error_line)
+
+    def test_runtime_error_leading_slash(self):
+        error_line = 0
+
+        def marker(): pass             # 0
+
+        @templet                       # 2
+        def testruntimeerror(a):       # 3
+            '''\
             some $a text               # 5
             ${{                        # 6
                 out.append(a) # just using up more lines

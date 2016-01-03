@@ -252,6 +252,8 @@ def get_docline(func):
         for lno, line in enumerate(source):
             if re.match('(?:|[^#]*:)\\s*[ru]?[\'"]', line):
                 docline = lno
+                if re.match(r'.*[\'"]\\$', line):
+                    docline += 1
                 break
     except:
         docline = 2
