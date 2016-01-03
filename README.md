@@ -118,7 +118,17 @@ So my recommended style for multiline templates is:
 
 Relative indenting for python code inside `${{...}}` is preserved using the same leading-space-stripping trick as is used for the templates themselves, so you can indent embedded python as normal, and you can start the indenting at whichever column feels natural. I usually indent embedded python by one more level.
 
-In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the `$` in the column that you want to treat as column zero.
+In the unusual case where it is necessary to emit text that has leading spaces on every line, you can begin the template with a continuation line with the `$` in the column that you want to treat as column zero, as follows:
+
+```
+@templet
+def indented(x):
+   """\
+   $
+      var val
+      x   $x
+   """
+```
 
 One question is whether the opening `"""` should be on the same line as the def or its own line. For clarity I usually put the opening quote on its own line, but to get columns to line up correctly, I eat the newline with a python line continuation immediately `"""\`.
 
