@@ -3,7 +3,7 @@
 from distutils.core import setup
 
 setup(
-    name='Python Templet',
+    name='python_templet',
     version='4.0.0',
     description='Lightweight string templating via function decorator.',
     long_description=open('README.md', 'r').read(),
@@ -11,8 +11,7 @@ setup(
     author_email='david.bau@gmail.com',
     url='https://github.com/python-templet/templet',
     packages=[],
-    install_requires=[],
-    dependency_links=[],
+    py_modules=['templet', 'test_templet'],
     scripts=[],
     license='BSD',
     classifiers=[
