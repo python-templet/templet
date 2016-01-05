@@ -104,7 +104,6 @@ Some tips/guidelines for using these annotations.
 Whitespace can be important inside HTML, but for python readability you often want to indent things, so @templet gives you a few tools:
 
  * It identifies the number of leading spaces that are uniformly used to the left of the template and strips them.
- * It strips the first line of the template, if empty.
  * It allows you to use a `$` at the end of a line for a line continuation.
 
 So my recommended style for multiline templates is:
