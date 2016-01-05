@@ -67,7 +67,7 @@ Similarly, templet does not invent any new control flow or looping structures. T
 ```
  @templet
  def doc_template(table):
-   """
+   """\
    <body>
    <h1>${ table.name }</h1>
    <table>
@@ -85,7 +85,7 @@ If you prefer list comprehensions, it is slightly more brief:
 ```
  @templet
  def doc_template(table):
-   """
+   """\
    <body>
    <h1>${ table.name }</h1>
    <table>
