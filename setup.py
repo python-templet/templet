@@ -14,6 +14,7 @@ setup(
     py_modules=['templet', 'test_templet'],
     scripts=[],
     license='BSD',
+    keywords="simple string template decorator",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
